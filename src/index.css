@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .mask-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, white 20%, white 80%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, white 20%, white 80%, transparent);
+  }
+}
+
+/* @layer utilities {
+  .bg-mask-bottom {
+    -webkit-mask-image: linear-gradient(to top, transparent, white 20%);
+    mask-image: linear-gradient(to top, transparent, white 20%);
+  }
+} */
+
+::-webkit-scrollbar{
+  display: none;
+}
