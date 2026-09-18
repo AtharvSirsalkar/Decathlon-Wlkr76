@@ -1,126 +1,253 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import gsap from "gsap";
+import Loader from "./components/Loader";
 
 gsap.registerPlugin(ScrollTrigger);
 
+const MAX_INDEX = 650;
+const STATIC_ASSETS = [
+  "./heroimage/logo-wlkr.webp",
+  "./heroimage/hero.jpg",
+  "./heroimage/fogg.webp",
+];
+const TOTAL_ASSETS = MAX_INDEX + STATIC_ASSETS.length;
+
+// How much of the very start of the scroll the hero -> fog dressing takes up.
+// The canvas sits underneath as its own always-live z-0 layer (see the JSX
+// below), so the sequence itself scrubs from the first pixel of scroll -
+// this window is just how long the hero/fog overlay takes to clear off of it.
+const INTRO_DRESSING_VH = { blend: 20, clear: 20 };
+const SEQUENCE_VH = 1400;
+// How much of the very end of the scroll the closing fade-to-black takes up.
+const ENDING_FADE_VH = 150;
+
 const App = () => {
-  //currentIndex and maxIndex
-  const [vals, setVals] = useState({
-    currentIndex: 1,
-    maxIndex: 650,
-  });
-
-  //Preload Images
-
-  useEffect(() => {
-    preloadImages();
-  }, []);
+  const [progress, setProgress] = useState(0);
+  const [assetsReady, setAssetsReady] = useState(false);
+  const [loaderMounted, setLoaderMounted] = useState(true);
 
   const imageObject = useRef([]);
-  const imagesLoaded = useRef(0);
   const canvasref = useRef(null);
-  const preloadImages = () => {
-    for (let i = 0; i <= vals.maxIndex; i++) {
-      const imgUrl = `./imgs/${i.toString().padStart(3, "0")}.jpg`;
-      const img = new Image();
-      img.src = imgUrl;
-      img.onload = () => {
-        imagesLoaded.current++;
-        if (imagesLoaded.current === vals.maxIndex) {
-          loadImage(vals.currentIndex);
-        }
-      };
-      imageObject.current.push(img);
-    }
-  };
-
-  const loadImage = (index) => {
-    if (index >= 0 && index <= vals.maxIndex) {
-      const img = imageObject.current[index];
-      const canvas = canvasref.current;
-      if (canvas && img) {
-        let ctx = canvas.getContext("2d");
-        if (ctx) {
-          canvas.width = window.innerWidth;
-          canvas.height = window.innerHeight;
-          const scaleX = canvas.width / img.width;
-          const scaleY = canvas.height / img.height;
-          const scale = Math.max(scaleX, scaleY);
-          const newHeight = img.height * scale;
-          const newWidth = img.width * scale;
-          const offsetX = (canvas.width - newWidth) / 2;
-          const offsetY = (canvas.height - newHeight) / 2;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-          ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
-          setVals((prevVal) => ({
-            ...prevVal,
-            currentIndex: index,
-          }));
-        }
-      }
-    }
-  };
-
   const parentDivRef = useRef(null);
+  const heroRef = useRef(null);
+  const fogRef = useRef(null);
+  const scrollHintRef = useRef(null);
+  const endingFadeRef = useRef(null);
+  const currentFrame = useRef(1);
 
-  useGSAP(() => {
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: parentDivRef.current,
-        start: "400",
-        scrub: 5,
-        end: "bottom bottom",
-      },
+  // Preload the entire scroll sequence + hero assets before anything is
+  // interactive, so scrubbing never has to draw a half-loaded frame.
+  useEffect(() => {
+    let cancelled = false;
+    let loadedCount = 0;
+    let pendingFrame = null;
+
+    const flushProgress = () => {
+      pendingFrame = null;
+      if (cancelled) return;
+      const pct = Math.min(100, (loadedCount / TOTAL_ASSETS) * 100);
+      setProgress(pct);
+      if (loadedCount >= TOTAL_ASSETS) setAssetsReady(true);
+    };
+
+    const onSettled = () => {
+      loadedCount += 1;
+      if (pendingFrame === null) {
+        pendingFrame = requestAnimationFrame(flushProgress);
+      }
+    };
+
+    const frames = new Array(MAX_INDEX + 1);
+    for (let i = 1; i <= MAX_INDEX; i++) {
+      const img = new Image();
+      img.onload = onSettled;
+      img.onerror = onSettled;
+      img.src = `./imgs/${i.toString().padStart(3, "0")}.jpg`;
+      frames[i] = img;
+    }
+    imageObject.current = frames;
+
+    STATIC_ASSETS.forEach((src) => {
+      const img = new Image();
+      img.onload = onSettled;
+      img.onerror = onSettled;
+      img.src = src;
     });
-    tl.to(vals, {
-      currentIndex: vals.maxIndex,
-      onUpdate: () => {
-        loadImage(Math.floor(vals.currentIndex));
-      },
-    });
-  });
 
-  const imageRef = useRef(null);
+    return () => {
+      cancelled = true;
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
+    };
+  }, []);
 
-  gsap.to(imageRef.current, {
-    top: "2%",
-    opacity: 1, // Fade        // Slightly increase size
-    duration: 2.5, // Smooth transition
-    ease: "ease", // Makes transition more natural
-    scrollTrigger: {
-      trigger: imageRef.current,
-      start: "0% top",
-      end: "100% bottom",
-      scrub: 2, // Smoothens the effect based on scroll speed
-      toggleActions: "play none none reverse",
+  // Lock scroll until the loader has fully handed off to the real page.
+  useEffect(() => {
+    document.body.style.overflow = loaderMounted ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [loaderMounted]);
+
+  const drawFrame = useCallback((index) => {
+    const canvas = canvasref.current;
+    const img = imageObject.current[index];
+    if (!canvas || !img || !img.complete || !img.naturalWidth) return;
+    const ctx = canvas.getContext("2d");
+    const scaleX = canvas.width / img.naturalWidth;
+    const scaleY = canvas.height / img.naturalHeight;
+    const scale = Math.max(scaleX, scaleY);
+    const newWidth = img.naturalWidth * scale;
+    const newHeight = img.naturalHeight * scale;
+    const offsetX = (canvas.width - newWidth) / 2;
+    const offsetY = (canvas.height - newHeight) / 2;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
+  }, []);
+
+  // Size the canvas to the viewport (not on every scroll frame) and redraw
+  // whatever frame is current whenever the window is resized.
+  useEffect(() => {
+    const canvas = canvasref.current;
+    if (!canvas) return;
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      drawFrame(currentFrame.current);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [drawFrame, assetsReady]);
+
+  useGSAP(
+    () => {
+      if (!assetsReady) return;
+
+      drawFrame(1);
+      gsap.set(fogRef.current, { scale: 1.05 });
+
+      // The canvas is an always-live z-0 layer (see the JSX below), not a
+      // separate section the hero/fog have to fully clear before it can
+      // start - so the sequence scrubs from the very first pixel of
+      // scroll, same as the hero fade. The hero/fog pair is just a dressing
+      // overlay fading in and back out on top of it early on: by the time
+      // it clears, the shoe is already visibly in motion underneath rather
+      // than sitting frozen on frame one waiting for an intro to finish.
+      const sequence = { index: 1 };
+      gsap
+        .timeline({
+          scrollTrigger: {
+            trigger: parentDivRef.current,
+            start: "top top",
+            end: "bottom bottom",
+            scrub: 1,
+          },
+        })
+        // Hero washes out under the fog overlay...
+        .to(
+          heroRef.current,
+          { opacity: 0, scale: 1.06, ease: "none", duration: INTRO_DRESSING_VH.blend },
+          0
+        )
+        .to(
+          fogRef.current,
+          { opacity: 1, scale: 1, ease: "none", duration: INTRO_DRESSING_VH.blend },
+          0
+        )
+        // The "scroll" hint only makes sense before scrolling has happened,
+        // so it fades away almost immediately once it does.
+        .to(scrollHintRef.current, { opacity: 0, ease: "none", duration: 6 }, 0)
+        // ...then the fog itself clears, revealing whatever frame the
+        // sequence has already reached underneath.
+        .to(
+          fogRef.current,
+          { opacity: 0, ease: "none", duration: INTRO_DRESSING_VH.clear },
+          INTRO_DRESSING_VH.blend
+        )
+        .to(
+          sequence,
+          {
+            index: MAX_INDEX,
+            ease: "none",
+            duration: SEQUENCE_VH,
+            onUpdate: () => {
+              currentFrame.current = Math.floor(sequence.index);
+              drawFrame(currentFrame.current);
+            },
+          },
+          0
+        )
+        // Closing fade to black: a gradual scrub-linked dissolve over the
+        // last stretch of scroll, reaching full black exactly as the
+        // scrollable page ends - not a hard cut, and not a static overlay
+        // that's just permanently sitting there.
+        .to(
+          endingFadeRef.current,
+          { opacity: 1, ease: "none", duration: ENDING_FADE_VH },
+          SEQUENCE_VH - ENDING_FADE_VH
+        );
     },
-  });
+    { dependencies: [assetsReady] }
+  );
+
   return (
     <>
+      {loaderMounted && (
+        <Loader
+          progress={progress}
+          ready={assetsReady}
+          onExitComplete={() => setLoaderMounted(false)}
+        />
+      )}
       <div className="w-full relative">
-       <div className="absolute bg-transparent top-[7.6%] ml-15 right-[0%] z-50 sticky" >
-       <img src="./heroimage/logo-wlkr.webp" className="object-cover h-[65px] sticky" alt="" />
-       </div>
-        <div className=" h-screen absolute top-[0%] z-20 w-full bg-[url('./heroimage/hero.jpg')] bg-cover bg-center bg-mask-bottom ">
-        
-        </div>
-        <div className="absolute z-20 bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-white to-transparent"></div>
-        <div className="absolute z-20 bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-white to-transparent"></div>
-        <div className="">
+        <div className="fixed top-[7.6%] left-6 z-50">
           <img
-            ref={imageRef}
-            src="./heroimage/fogg.webp"
-            className="z-30 mask-fade opacity-0 w-full absolute top-1 object-cover h-screen object-center"
+            src="./heroimage/logo-wlkr.webp"
+            className="object-cover h-[65px]"
             alt=""
           />
         </div>
         <div ref={parentDivRef} className="w-full h-[1400vh]">
-          <div className="w-full h-screen sticky left-0 top-0">
-            <canvas ref={canvasref} className="w-full h-screen"></canvas>
+          <div className="w-full h-screen sticky left-0 top-0 overflow-hidden">
+            <canvas ref={canvasref} className="absolute inset-0 z-0 w-full h-screen"></canvas>
+            <div
+              ref={heroRef}
+              className="absolute inset-0 z-10 bg-[url('./heroimage/hero.jpg')] bg-cover bg-center"
+            ></div>
+            <img
+              ref={fogRef}
+              src="./heroimage/fogg.webp"
+              className="absolute inset-0 z-20 opacity-0 w-full h-full object-cover object-center"
+              alt=""
+            />
+            <div
+              ref={scrollHintRef}
+              className="pointer-events-none absolute bottom-10 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-2"
+            >
+              <span className="text-[10px] font-medium uppercase tracking-[0.35em] text-white/90 [text-shadow:0_1px_4px_rgba(0,0,0,0.35)]">
+                Scroll
+              </span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4 text-white/90 [animation-duration:1.8s] animate-bounce drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+              <span className="h-9 w-px bg-white/60" />
+            </div>
+            <div
+              ref={endingFadeRef}
+              className="pointer-events-none absolute inset-0 z-30 bg-black opacity-0"
+            ></div>
           </div>
         </div>
       </div>
