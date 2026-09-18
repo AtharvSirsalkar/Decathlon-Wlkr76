@@ -8,9 +8,9 @@ gsap.registerPlugin(ScrollTrigger);
 
 const MAX_INDEX = 650;
 const STATIC_ASSETS = [
-  "./heroimage/logo-wlkr.webp",
-  "./heroimage/hero.jpg",
-  "./heroimage/fogg.webp",
+  "/heroimage/logo-wlkr.webp",
+  "/heroimage/hero.jpg",
+  "/heroimage/fogg.webp",
 ];
 const TOTAL_ASSETS = MAX_INDEX + STATIC_ASSETS.length;
 
@@ -64,7 +64,7 @@ const App = () => {
       const img = new Image();
       img.onload = onSettled;
       img.onerror = onSettled;
-      img.src = `./imgs/${i.toString().padStart(3, "0")}.jpg`;
+      img.src = `/imgs/${i.toString().padStart(3, "0")}.jpg`;
       frames[i] = img;
     }
     imageObject.current = frames;
@@ -206,7 +206,7 @@ const App = () => {
       <div className="w-full relative">
         <div className="fixed top-[7.6%] left-6 z-50">
           <img
-            src="./heroimage/logo-wlkr.webp"
+            src="/heroimage/logo-wlkr.webp"
             className="object-cover h-[65px]"
             alt=""
           />
@@ -216,11 +216,11 @@ const App = () => {
             <canvas ref={canvasref} className="absolute inset-0 z-0 w-full h-screen"></canvas>
             <div
               ref={heroRef}
-              className="absolute inset-0 z-10 bg-[url('./heroimage/hero.jpg')] bg-cover bg-center"
+              className="absolute inset-0 z-10 bg-[url('/heroimage/hero.jpg')] bg-cover bg-center"
             ></div>
             <img
               ref={fogRef}
-              src="./heroimage/fogg.webp"
+              src="/heroimage/fogg.webp"
               className="absolute inset-0 z-20 opacity-0 w-full h-full object-cover object-center"
               alt=""
             />
