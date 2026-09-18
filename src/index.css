@@ -7,6 +7,22 @@
   }
 }
 
+@keyframes drift-a {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(30px, 20px); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-25px, -18px); }
+}
+@keyframes drift-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(15px, -25px) scale(1.08); }
+}
+.animate-drift-a { animation: drift-a 9s ease-in-out infinite; }
+.animate-drift-b { animation: drift-b 11s ease-in-out infinite; }
+.animate-drift-c { animation: drift-c 8s ease-in-out infinite; }
+
 /* @layer utilities {
   .bg-mask-bottom {
     -webkit-mask-image: linear-gradient(to top, transparent, white 20%);
